@@ -13,34 +13,35 @@ Before changing anything, capture essential diagnostic information. The easiest 
 
 ### Quick Start: Automated Diagnostics Capture
 
-Run the diagnostic script to automatically capture all required information:
+Use the official LangSmith Kubernetes debugging script to automatically capture all required diagnostic information. This script is maintained in the [LangChain Helm repository](https://github.com/langchain-ai/helm).
+
+**Download and run the script:**
 
 ```bash
-./scripts/capture-diagnostics.sh
+# Download the script
+curl -O https://raw.githubusercontent.com/langchain-ai/helm/main/charts/langsmith/scripts/get_k8s_debugging_info.sh
+chmod +x get_k8s_debugging_info.sh
+
+# Run it with your namespace
+./get_k8s_debugging_info.sh --namespace langsmith
 ```
 
-The script captures:
-- Pod list and detailed descriptions for all pods
-- Logs from all pods (current and previous if restarted)
-- Kubernetes events
-- Ingress resources and detailed configurations
-- Service and endpoint information
-- Node information and resource usage
-- ALB target group health (if AWS CLI is configured)
+**What the script captures:**
+- Summary of all Kubernetes resources (`kubectl get all`)
+- Detailed YAML for all resources
+- Kubernetes events (sorted by timestamp)
+- Resource usage for all pods and containers
+- Container logs for all pods (last 24 hours)
+- Previous container logs for restarted containers
+- All output compressed to a zip or tar.gz file
 
-**Configuration via environment variables:**
-- `NAMESPACE` - Kubernetes namespace (default: `langsmith`)
-- `LOG_TAIL` - Number of log lines to capture per pod (default: `200`)
-- `EVENTS_TAIL` - Number of events to capture (default: `50`)
-- `OUTPUT_DIR` - Directory for diagnostic output (default: `./diagnostics`)
-- `AWS_REGION` - AWS region for ALB queries (default: `us-west-2`)
+**Script details:**
+- **Source:** [get_k8s_debugging_info.sh](https://github.com/langchain-ai/helm/blob/main/charts/langsmith/scripts/get_k8s_debugging_info.sh)
+- **Output location:** `/tmp/langchain-debugging-<timestamp>/`
+- **Output format:** Compressed archive (`.zip` preferred, falls back to `.tar.gz`)
+- **Required argument:** `--namespace <namespace>`
 
-**Example with custom configuration:**
-```bash
-NAMESPACE=langsmith-prod LOG_TAIL=500 OUTPUT_DIR=./prod-diagnostics ./scripts/capture-diagnostics.sh
-```
-
-The script creates a timestamped directory with all diagnostic information and a summary file. All output is saved for later analysis.
+The script creates a timestamped directory with all diagnostic information and compresses it into a single archive file, making it easy to share with support teams or analyze later.
 
 ### Manual Capture (Alternative)
 
