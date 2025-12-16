@@ -62,6 +62,8 @@ Provision (at minimum):
 - **ClickHouse capacity** if in-cluster:
   - One node with **8 vCPU / 32GB RAM** allocatable
 
+> **For detailed production capacity and resource requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md).**
+
 ### 2.3 Terraform Verification Gates (Stop if any fail)
 - [ ] `aws eks describe-cluster` shows `ACTIVE`
 - [ ] Worker nodes in private subnets can reach the internet (NAT)
@@ -156,6 +158,8 @@ Your Helm values must define:
 - ClickHouse configuration (external or in-cluster)
 - S3 artifact storage (strongly recommended)
 - Ingress configuration (ALB + TLS)
+
+> **For production requirements for each component, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md).**
 
 ### 5.3 Install/Upgrade
 - Install the chart into the `langsmith` namespace.
