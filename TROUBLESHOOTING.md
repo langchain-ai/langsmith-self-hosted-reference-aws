@@ -248,7 +248,7 @@ Capturing this information ensures you address the actual root cause rather than
 - `kubectl top pod <clickhouse-pod> -n langsmith`
 
 **Fixes**
-- Move to **8 vCPU / 32GB RAM** baseline
+- Move to **8 vCPU / 32GB RAM** baseline (see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required) for production requirements)
 - Increase memory limits/requests
 - Reduce concurrent ingest/query load
 
@@ -272,7 +272,7 @@ Capturing this information ensures you address the actual root cause rather than
 - Review ClickHouse logs for merge pressure / IO wait
 
 **Fixes**
-- Use SSD-backed storage with sufficient IOPS/throughput
+- Use SSD-backed storage with sufficient IOPS/throughput (see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required) for storage requirements)
 - Increase volume size
 - Move ClickHouse to a dedicated node group / better instance type
 
@@ -321,7 +321,7 @@ Capturing this information ensures you address the actual root cause rather than
 - Increase node group size
 - Use larger instance types
 - Remove/adjust taints and affinities
-- Ensure ClickHouse has a node that can fit **8/32 allocatable**
+- Ensure ClickHouse has a node that can fit **8/32 allocatable** (see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required) for production requirements)
 
 ---
 
@@ -391,7 +391,7 @@ If you open a ticket, include:
 - External dependencies:
   - Postgres type/version (RDS/Aurora, PG version)
   - Redis type/version
-  - ClickHouse model (external vs in-cluster) + sizing
+  - ClickHouse model (external vs in-cluster) + sizing (see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md) for production requirements)
 - ALB target health status and error reason
 
 Providing this information upfront enables faster resolution. If diagnostics are incomplete, the first step will be to collect the necessary diagnostic data.

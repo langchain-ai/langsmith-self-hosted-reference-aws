@@ -158,6 +158,8 @@ The script provides clear success/failure indicators for each permission check, 
   - ClickHouse
   - System overhead
 
+> **For detailed production capacity and resource requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md).**
+
 ### Required Add-ons
 - [ ] Metrics Server enabled
 - [ ] Cluster Autoscaler enabled
@@ -188,9 +190,13 @@ The script provides clear success/failure indicators for each permission check, 
   - [ ] PersistentVolume provisioner available
 - [ ] You understand ClickHouse is **not stateless**
 
+> **For production ClickHouse topology requirements (3 replicas minimum), see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required).**
+
 ---
 
 ## 6. Object Storage (Strongly Recommended)
+
+> **For blob storage requirements and workload triggers, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#4-blob-storage-strongly-recommended).**
 
 ### S3
 - [ ] S3 bucket planned for LangSmith artifacts

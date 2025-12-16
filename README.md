@@ -110,6 +110,8 @@ This diagram represents the **minimum supported topology** for the P0 reference 
   - **16 vCPU / 64 GB RAM** available
 - This includes LangSmith services + system overhead
 
+> **For detailed production capacity requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md).**
+
 ---
 
 ## 6. Data Stores
@@ -131,12 +133,16 @@ LangSmith SH relies on three core data stores.
 
 ClickHouse is **memory-, I/O-, and concurrency-intensive**. Proper sizing and topology are mandatory for production stability.
 
+> **For detailed production requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required).**
+
 ### Production Requirements (P0 – Baseline)
 
 **Topology**
-- **Minimum of 2 ClickHouse read nodes (replicas) is required for production**
+- **Production requires a replicated ClickHouse cluster**
+- **Baseline: 3 ClickHouse replicas** (minimum for production)
 - Single-node ClickHouse is **not supported for production workloads**
 - Read and write concurrency must be able to scale independently
+- **Guardrail:** Clusters typically should remain ≤5 replicas
 
 **Compute**
 - 8 vCPU
@@ -147,7 +153,7 @@ ClickHouse is **memory-, I/O-, and concurrency-intensive**. Proper sizing and to
 - ~7000 IOPS
 - ~1000 MiB/s throughput
 
-> ⚠️ CPU and memory alone are not sufficient indicators of health. Query concurrency and disk I/O are often the first bottlenecks.
+> ⚠️ **Query concurrency and disk I/O are leading indicators**, not CPU/memory. Monitor these metrics to identify bottlenecks before they impact system health.
 
 ---
 
@@ -159,12 +165,11 @@ ClickHouse is **memory-, I/O-, and concurrency-intensive**. Proper sizing and to
 
 ---
 
-### Blob Storage (Strongly Advised)
+### Blob Storage (Strong Production Recommendation)
 
-Blob storage is **strongly advised** for any production deployment that meets **either** of the following conditions:
+Blob storage is **strongly recommended for production** and should be enabled once deployments exceed **~10 active tenants** OR hit any of the workload-based triggers below.
 
-- **More than ~10 active tenants**
-- **Any of the workload triggers below**
+> **For complete blob storage requirements and workload triggers, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#4-blob-storage-strongly-recommended).**
 
 #### Workload Triggers
 Enable blob storage if **any** of the following are observed or expected:
@@ -172,22 +177,54 @@ Enable blob storage if **any** of the following are observed or expected:
 - Peak concurrent ClickHouse queries consistently **> 100** (or spikes > 200)
 - P95 query latency **> 2 seconds** for trace or run retrieval queries
 - P95 ingestion delay (`received_at → inserted_at`) **> 60 seconds**
-- One or more tenants producing **large or verbose traces** (e.g., large tool outputs, attachments, or deeply nested spans)
+- Any tenant producing **large or verbose traces** (e.g., large tool outputs, attachments, or deeply nested spans)
 
-> Without blob storage, large trace payloads are stored inline in ClickHouse. This increases part counts, merge pressure, and read amplification, which can lead to query concurrency collapse and severe trace visibility delays.
+> ⚠️ **Without blob storage**, large payloads increase part counts, merge pressure, and read amplification, leading to concurrency collapse and delayed trace visibility.
+
+> ⚠️ **Blob storage lifecycle policies must align with ClickHouse TTL settings** to prevent data inconsistencies and ensure proper cleanup.
 
 ---
 
 ### Scaling Guidance (P1)
 
-Scale ClickHouse to **16 vCPU / 64 GB RAM** and/or additional replicas when:
+**ClickHouse Scaling**
+- Keep existing CPU/RAM sizing (8 vCPU / 32 GB RAM baseline, scale to 16 vCPU / 64 GB RAM as needed)
+- **Query concurrency and disk I/O are leading indicators**, not CPU/memory
+- Scale ClickHouse to **16 vCPU / 64 GB RAM** and/or additional replicas when:
+  - Trace ingestion volume grows
+  - Concurrent query count increases
+  - Query latency trends upward
+  - Insert lag begins to drift
 
-- Trace ingestion volume grows
-- Concurrent query count increases
-- Query latency trends upward
-- Insert lag begins to drift
+> ⚠️ **Scaling ClickHouse without blob storage has diminishing returns** at higher write and concurrency levels.
 
-> Scaling ClickHouse without blob storage has diminishing returns at higher write and concurrency levels.
+**Redis Sizing**
+- For high-write workloads, ensure Redis has sufficient memory and network bandwidth
+- Monitor Redis memory usage, connection counts, and queue depths
+- External Redis (AWS ElastiCache) is required for production workloads with significant write volume
+- Single-node Redis is acceptable for P0 baseline, but consider replication for production workloads
+
+---
+
+## 6.5. Read vs Write Path Mental Model
+
+Understanding the separation between read and write paths is critical for effective scaling and troubleshooting.
+
+### Write Path
+**Backend → Redis → Queue → ClickHouse**
+
+- Traces are received by the backend service
+- Data flows through Redis (caching/queuing)
+- Queue workers process and insert into ClickHouse
+- This path handles ingestion and write concurrency
+
+### Read Path
+**Backend → ClickHouse**
+
+- User queries and trace retrieval go directly from backend to ClickHouse
+- This path handles query concurrency and read performance
+
+> ⚠️ **Scaling the wrong layer can worsen outages.** For example, adding queue workers without scaling ClickHouse will increase write pressure on an already saturated database, making the problem worse. Always identify whether the bottleneck is in the write path (queue/workers) or read path (ClickHouse query capacity) before scaling.
 
 ---
 
@@ -220,6 +257,31 @@ Scale ClickHouse to **16 vCPU / 64 GB RAM** and/or additional replicas when:
   - OIDC / SSO (at least one concrete example recommended for enablement)
 
 > For P0 enablement, select **one authentication pattern** to focus on. Additional patterns may be explored in future enablement tracks.
+
+---
+
+## 8.5. Operational Guidance
+
+> **For detailed operational guidance including ingestion configuration and failure modes, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#8-optional-performance-levers-not-fixes) and [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#10-known-failure-mode-awareness).**
+
+### Ingestion Configuration
+
+**CLICKHOUSE_ASYNC_INSERT_WAIT_PCT_FLOAT=0** can be used as an optional ingest lever to reduce write latency. However, **this setting does not fix underlying ClickHouse saturation**. If ClickHouse is saturated, this may mask symptoms temporarily but will not resolve root causes.
+
+### Failure Modes
+
+Common issues often manifest as **"traces created but not visible"** due to ingestion backpressure. This occurs when:
+
+- ClickHouse write capacity is exceeded
+- Queue workers cannot keep up with ingestion volume
+- ClickHouse merge operations are backlogged
+- Disk I/O is saturated
+
+When investigating trace visibility issues, check:
+1. ClickHouse query concurrency and disk I/O metrics
+2. Queue depth and worker processing rates
+3. ClickHouse merge operations and part counts
+4. Ingestion delay metrics (`received_at → inserted_at`)
 
 ---
 
