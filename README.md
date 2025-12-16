@@ -127,29 +127,67 @@ LangSmith SH relies on three core data stores.
 - Single node acceptable for P0
 - Persistence optional but recommended
 
-### ClickHouse (Traces & Analytics)
+## ClickHouse (Traces & Analytics)
 
-ClickHouse is **memory- and I/O-intensive**. Proper sizing is critical for optimal performance and stability.
+ClickHouse is **memory-, I/O-, and concurrency-intensive**. Proper sizing and topology are mandatory for production stability.
 
-#### P0 Reference Sizing (Production Baseline)
-- **8 vCPU**
-- **32 GB RAM**
-- **SSD-backed persistent storage**
-  - ~7000 IOPS
-  - ~1000 MiB/s throughput
+### Production Requirements (P0 – Baseline)
 
-#### Allowed but Dev-Only
-- **4 vCPU / 16 GB RAM**
-- Non-production proof-of-concept only
+**Topology**
+- **Minimum of 2 ClickHouse read nodes (replicas) is required for production**
+- Single-node ClickHouse is **not supported for production workloads**
+- Read and write concurrency must be able to scale independently
 
-#### Scaling Guidance (P1)
-- Scale to **16 vCPU / 64 GB RAM** when:
-  - Trace ingestion grows
-  - Query latency increases
-  - Memory pressure appears
+**Compute**
+- 8 vCPU
+- 32 GB RAM
 
-> Strong recommendation: use externally managed ClickHouse where possible.  
-> In-cluster ClickHouse is supported for P0 and works well with proper operational practices.
+**Storage**
+- SSD-backed persistent storage
+- ~7000 IOPS
+- ~1000 MiB/s throughput
+
+> ⚠️ CPU and memory alone are not sufficient indicators of health. Query concurrency and disk I/O are often the first bottlenecks.
+
+---
+
+### Suitable for Dev-Only
+
+- 4 vCPU / 16 GB RAM
+- Single ClickHouse node
+- **Non-production proof-of-concept only**
+
+---
+
+### Blob Storage (Strongly Advised)
+
+Blob storage is **strongly advised** for any production deployment that meets **either** of the following conditions:
+
+- **More than ~10 active tenants**
+- **Any of the workload triggers below**
+
+#### Workload Triggers
+Enable blob storage if **any** of the following are observed or expected:
+
+- Peak concurrent ClickHouse queries consistently **> 100** (or spikes > 200)
+- P95 query latency **> 2 seconds** for trace or run retrieval queries
+- P95 ingestion delay (`received_at → inserted_at`) **> 60 seconds**
+- One or more tenants producing **large or verbose traces** (e.g., large tool outputs, attachments, or deeply nested spans)
+
+> Without blob storage, large trace payloads are stored inline in ClickHouse. This increases part counts, merge pressure, and read amplification, which can lead to query concurrency collapse and severe trace visibility delays.
+
+---
+
+### Scaling Guidance (P1)
+
+Scale ClickHouse to **16 vCPU / 64 GB RAM** and/or additional replicas when:
+
+- Trace ingestion volume grows
+- Concurrent query count increases
+- Query latency trends upward
+- Insert lag begins to drift
+
+> Scaling ClickHouse without blob storage has diminishing returns at higher write and concurrency levels.
 
 ---
 
