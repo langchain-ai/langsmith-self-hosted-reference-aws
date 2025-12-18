@@ -1,15 +1,15 @@
 # LangSmith Self-Hosted on AWS — Deployment Walkthrough (P0)
 
-**Goal:** Get from zero → running LangSmith SH → first successful trace → basic health validation.  
-**Assumption:** You passed [`PREFLIGHT.md`](./PREFLIGHT.md). If not, stop and do that first.
+**Goal:** Get from zero → running LangSmith Self-Hosted → first successful trace → basic health validation.  
+**Prerequisite:** Complete the [`PREFLIGHT.md`](./PREFLIGHT.md) checklist before starting. This ensures your environment is ready and helps prevent common deployment issues.
 
-This walkthrough is intentionally opinionated and linear. Following it step-by-step ensures you stay on the reference path and can receive full support.
+This walkthrough provides a step-by-step path to deploy LangSmith Self-Hosted. Following it sequentially will help you avoid common pitfalls and ensure a successful deployment.
 
 ---
 
-## 0. Inputs You Must Decide Up Front
+## 0. Decisions to Make Before Starting
 
-Pick these *before* you touch Terraform:
+Before you begin deploying with Terraform, decide on the following:
 
 - **AWS Region:** `us-west-2` (example — pick one and stick to it)
 - **Environment name:** `dev` / `staging` / `prod` (do not share resources across envs)
@@ -21,23 +21,23 @@ Pick these *before* you touch Terraform:
   - Redis: ElastiCache (recommended)
   - ClickHouse: Externally managed (preferred) or in-cluster (allowed)
 
-Write these in a `deploy/ENV.md` file for your own sanity.
+**Tip:** Document these decisions in a `deploy/ENV.md` file so you can reference them throughout the deployment process.
 
 ---
 
 ## 1. Clone Repos and Pin Versions
 
-You are building an enablement path. That means **pinning** matters.
+To ensure a reproducible deployment, use specific versions of the Terraform and Helm repositories rather than always using the latest code.
 
-- Clone:
+- Clone the required repositories:
   - `https://github.com/langchain-ai/terraform`
   - `https://github.com/langchain-ai/helm`
-- Record:
+- Record the specific versions you're using:
   - Terraform repo commit SHA
   - Helm repo commit SHA or chart version
-- Do not “float” versions for the reference deployment.
+- Avoid using floating/latest versions to ensure you can reproduce your deployment later.
 
-> Reproducibility is essential for effective enablement. If you cannot reproduce a deployment later, the enablement process has not been fully captured.
+> **Why this matters:** Using pinned versions ensures you can recreate your exact deployment configuration later, which is essential for troubleshooting, upgrades, and disaster recovery.
 
 ---
 
@@ -50,6 +50,7 @@ You are building an enablement path. That means **pinning** matters.
 ### 2.2 Apply Infrastructure
 Provision (at minimum):
 - VPC + subnets (public for ALB, private for nodes/data)
+  - Use a VPC CIDR block of at least /16 to ensure sufficient IP addresses for all nodes and pods
 - EKS cluster + managed node groups
 - RDS Postgres (14+)
 - ElastiCache Redis
@@ -59,12 +60,15 @@ Provision (at minimum):
 
 **Hard requirement:** Ensure the EKS node groups provide at least:
 - **16 vCPU / 64GB RAM** allocatable capacity total
-- **ClickHouse capacity** if in-cluster:
-  - One node with **8 vCPU / 32GB RAM** allocatable
+- **ClickHouse capacity** if deploying in-cluster:
+  - **Production:** Capacity for 3 replicas, each with **8 vCPU / 32GB RAM** allocatable (single-node ClickHouse is not supported for production)
+  - **Dev-only:** Single node with **8 vCPU / 32GB RAM** allocatable (non-production proof-of-concept only)
 
-> **For detailed production capacity and resource requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md).**
+> **For detailed production capacity and resource requirements, including ClickHouse topology requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required).**
 
-### 2.3 Terraform Verification Gates (Stop if any fail)
+### 2.3 Verify Infrastructure Before Proceeding
+
+Before moving to the next step, verify that your infrastructure is correctly provisioned:
 - [ ] `aws eks describe-cluster` shows `ACTIVE`
 - [ ] Worker nodes in private subnets can reach the internet (NAT)
 - [ ] RDS reachable from EKS subnets/security groups
@@ -94,33 +98,40 @@ Verification:
 Create a dedicated namespace, e.g.:
 - `langsmith`
 
-## 3.4 Ingress Gate — Prove ALB Works Before Installing LangSmith
+## 3.4 Validate Ingress Before Installing LangSmith
 
-Complete this validation **before** Helm-installing LangSmith. Many deployment issues initially attributed to LangSmith are actually ingress, controller, or subnet-tagging configuration problems.
+**Important:** Complete this validation **before** installing LangSmith with Helm. This step helps isolate any ingress configuration issues from application-level problems, making troubleshooting much easier if something goes wrong.
 
-### 3.4.1 Deploy a tiny test app
-Deploy any minimal HTTP echo service into a test namespace (or the `langsmith` namespace). Confirm:
-- `kubectl get pods` shows it running
-- `kubectl get svc` shows endpoints
+Many deployment issues that appear to be LangSmith problems are actually related to ingress, controller, or subnet-tagging configuration.
 
-### 3.4.2 Create a test Ingress that provisions an ALB
-Create an Ingress pointing at the test service.
+### 3.4.1 Deploy a Test Application
 
-Your success criteria are binary:
-- [ ] An **ALB** is created
-- [ ] A target group is created
-- [ ] Targets become **healthy**
-- [ ] You can hit the endpoint and get a response over **HTTPS**
+Deploy a minimal HTTP echo service (or any simple web service) into a test namespace (or the `langsmith` namespace). This will serve as a test target for your ingress.
 
-### 3.4.3 If this fails, stop
-Do not proceed to LangSmith until this gate passes.
+Verify the test app is running:
+- `kubectl get pods` shows the pod in `Running` state
+- `kubectl get svc` shows the service has endpoints
 
-When it fails, the first places to look are:
-- Kubernetes events on the Ingress
-- AWS Load Balancer Controller logs
-- ALB target group health reasons in the AWS console
+### 3.4.2 Create a Test Ingress
 
-> If you are not using ALB for ingress, you are operating outside the P0 reference path.
+Create an Ingress resource pointing at your test service. This will trigger the AWS Load Balancer Controller to provision an ALB.
+
+Verify everything works:
+- [ ] An **ALB** is created in AWS
+- [ ] A target group is created and associated with the ALB
+- [ ] Targets become **healthy** in the target group
+- [ ] You can successfully access the endpoint over **HTTPS** and receive a response
+
+### 3.4.3 Troubleshooting Ingress Issues
+
+If the test ingress fails, **do not proceed** to installing LangSmith until this is resolved. Fixing ingress issues after LangSmith is installed makes troubleshooting more difficult.
+
+If the ingress test fails, check these areas first:
+- Kubernetes events on the Ingress resource: `kubectl describe ingress <ingress-name>`
+- AWS Load Balancer Controller logs: `kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller`
+- ALB target group health status in the AWS console (look for specific error reasons)
+
+> **Note:** This reference architecture requires AWS ALB for ingress. If you're using a different ingress controller, you'll need to adapt the configuration accordingly.
 
 ---
 
@@ -133,14 +144,18 @@ You need:
 - ClickHouse endpoint/user/password (or in-cluster config)
 - S3 bucket name and region
 
-### 4.2 Store Secrets (Do Not Put in Git)
-Preferred: AWS Secrets Manager + External Secrets integration.
+### 4.2 Store Secrets Securely
 
-At minimum for P0 enablement:
-- Keep secrets out of repo
-- Inject into Kubernetes securely (ExternalSecrets/CSI/secure env)
+**Critical:** Never commit passwords, API keys, or other secrets to version control.
 
-**Stop condition:** Never commit passwords or secrets into `values.yaml` or version control. Use a secrets management solution instead.
+**Recommended approach:** Use AWS Secrets Manager with External Secrets Operator to automatically sync secrets into Kubernetes.
+
+**Minimum requirement:** 
+- Keep all secrets out of your git repository
+- Use a secrets management solution (AWS Secrets Manager, HashiCorp Vault, etc.)
+- Inject secrets into Kubernetes securely using External Secrets, CSI driver, or secure environment variable injection
+
+> **Security reminder:** If secrets end up in your git history, they can be exposed. Always use a proper secrets management solution.
 
 ---
 
@@ -165,17 +180,19 @@ Your Helm values must define:
 - Install the chart into the `langsmith` namespace.
 - Use `helm upgrade --install` (idempotent).
 
-### 5.4 Helm Verification Gates (Stop if any fail)
+### 5.4 Verify Helm Installation
+
+After installing LangSmith, verify that everything is running correctly:
 - [ ] All pods in `langsmith` namespace reach `Running` or expected steady state
 - [ ] No CrashLoopBackOff
 - [ ] Services have endpoints
 - [ ] Ingress is created and gets an ALB hostname/address
 
-Commands you should run (conceptually):
-- `kubectl get pods -n langsmith`
-- `kubectl describe pod <...> -n langsmith`
-- `kubectl get svc -n langsmith`
-- `kubectl get ingress -n langsmith` (or equivalent ingress resource)
+**Verification commands:**
+- `kubectl get pods -n langsmith` - Check all pods are running
+- `kubectl describe pod <pod-name> -n langsmith` - Inspect any pods that aren't running
+- `kubectl get svc -n langsmith` - Verify services are created
+- `kubectl get ingress -n langsmith` - Confirm ingress resource exists and has an ALB address
 
 ---
 
@@ -189,15 +206,15 @@ Commands you should run (conceptually):
 - Create a Route53 record:
   - `langsmith.<domain>` → ALB DNS name
 
-### 6.3 Reachability Gate
+### 6.3 Verify Reachability
 - [ ] You can load the LangSmith UI at `https://langsmith.<domain>`
 - [ ] Auth behaves as intended (token login or SSO)
 
 ---
 
-## 7. “First Successful Trace” (The Real Success Condition)
+## 7. Send Your First Trace
 
-A deployment is not “done” until traces flow.
+A deployment isn't complete until you can successfully send and view traces. This step validates that the entire ingestion pipeline is working correctly.
 
 ### 7.1 Create an API Key / Token (if applicable)
 - Create the token per your configured auth model.
@@ -209,12 +226,20 @@ From a laptop or CI runner with egress to the endpoint:
 - Configure auth (`LANGSMITH_API_KEY` or equivalent)
 - Run a minimal trace-producing script (LangChain example or direct API).
 
-### 7.3 Trace Gate (Stop if fails)
-- [ ] A trace appears in the LangSmith UI
-- [ ] Trace includes at least one run/span
-- [ ] No ingestion errors in logs
+### 7.3 Verify Trace Ingestion
 
-If this fails, do not proceed to operational tasks. Fix ingestion first to ensure the system is functioning correctly.
+Check that your trace was successfully ingested:
+- [ ] The trace appears in the LangSmith UI
+- [ ] The trace includes at least one run/span with data
+- [ ] No ingestion errors appear in the application logs
+
+**If traces don't appear:** Don't proceed to operational tasks yet. Fix the ingestion pipeline first. Common issues include:
+- ClickHouse connectivity problems
+- Redis queue issues
+- Authentication/authorization errors
+- Network connectivity between services
+
+See [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) for detailed troubleshooting steps.
 
 ---
 
@@ -243,14 +268,15 @@ Check:
 
 ---
 
-## 9. Backup & Restore (P0 Expectations)
+## 9. Backup & Restore Planning
 
-For P0 enablement, you must at least:
-- Confirm RDS backups are enabled
-- Confirm ClickHouse persistence strategy is defined
-- Confirm S3 bucket lifecycle/versioning policy is intentional
+Before considering your deployment production-ready, ensure you have a backup and restore strategy:
 
-You do not need to execute a restore yet, but you must document how it would be done.
+- **RDS backups:** Confirm automated backups are enabled and test that you can restore from them
+- **ClickHouse persistence:** Verify your ClickHouse data is stored on persistent volumes and understand how to restore it
+- **S3 bucket lifecycle:** Confirm your S3 bucket has appropriate lifecycle policies and versioning configured
+
+**Important:** You don't need to perform a full restore test immediately, but you should document the restore procedure and understand how long it would take to recover from a failure.
 
 ---
 
@@ -279,9 +305,9 @@ This data becomes your failure-mode catalog later.
 
 ---
 
-## 11. “Done” Definition (P0)
+## 11. Deployment Complete Checklist
 
-You are done only when:
+Your deployment is complete when all of the following are true:
 
 - [ ] Terraform applied cleanly and is reproducible
 - [ ] Helm install is idempotent (`upgrade --install` works)
@@ -289,19 +315,20 @@ You are done only when:
 - [ ] First successful trace appears in the UI
 - [ ] Basic health checks are green (no crash loops, stable DB connectivity)
 
-If any box isn't checked, continue working through the checklist until all items are complete to ensure a fully functional reference deployment.
+If any item isn't checked, continue working through the walkthrough or consult [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) to resolve the issue.
 
 ---
 
-## Appendix: What to Capture During Your First Real Deployment
+## Appendix: Notes for Your First Deployment
 
-As you run this the first time, log:
-- Where you hesitated
-- What you had to guess
-- What you looked up
-- What failed and how you fixed it
+As you go through this walkthrough for the first time, consider keeping notes on:
+- Steps where you needed to pause and look up additional information
+- Decisions you had to make that weren't clearly documented
+- Any issues you encountered and how you resolved them
+- Configuration choices you made and why
 
-Those are the inputs for:
-- `TROUBLESHOOTING.md`
-- “Top failure modes”
-- Future certification labs
+These notes will be valuable for:
+- Troubleshooting future issues
+- Onboarding other team members
+- Planning upgrades or changes
+- Understanding your specific deployment configuration

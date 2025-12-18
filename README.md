@@ -4,7 +4,7 @@
 **Audience:** Platform / Infra / MLOps Engineers  
 **Goal:** Provide a single, opinionated, supportable path to deploying and operating LangSmith Self-Hosted (SH) on AWS with minimal support intervention.
 
-This document defines the **reference architecture LangChain Enablement stands behind**.  
+This document defines the **AWS reference architecture LangChain Enablement stands behind**.  
 Alternative approaches may work, but are **out of scope for P0 enablement and future certification**.
 
 ---
