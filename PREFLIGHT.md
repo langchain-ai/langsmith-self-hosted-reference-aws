@@ -182,15 +182,16 @@ The script provides clear success/failure indicators for each permission check, 
 
 ### ClickHouse (Critical)
 - [ ] Deployment model chosen:
-  - [ ] Externally managed
+  - [ ] Externally managed (recommended for production)
   - [ ] In-cluster (StatefulSet)
 - [ ] If in-cluster:
-  - [ ] Node with **8 vCPU / 32 GB RAM** available
+  - [ ] **Production:** Capacity for 3 replicas, each with **8 vCPU / 32 GB RAM** available (single-node ClickHouse is not supported for production)
+  - [ ] **Dev-only:** Single node with **8 vCPU / 32 GB RAM** available (non-production proof-of-concept only)
   - [ ] SSD-backed storage
   - [ ] PersistentVolume provisioner available
 - [ ] You understand ClickHouse is **not stateless**
 
-> **For production ClickHouse topology requirements (3 replicas minimum), see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required).**
+> **For detailed production ClickHouse topology requirements (3 replicas minimum), see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#3-clickhouse-traces--analytics-required).**
 
 ---
 

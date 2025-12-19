@@ -4,8 +4,47 @@
 **Audience:** Platform / Infra / MLOps Engineers  
 **Goal:** Provide a single, opinionated, supportable path to deploying and operating LangSmith Self-Hosted (SH) on AWS with minimal support intervention.
 
-This document defines the **reference architecture LangChain Enablement stands behind**.  
+This document defines the **AWS reference architecture LangChain Enablement stands behind**.  
 Alternative approaches may work, but are **out of scope for P0 enablement and future certification**.
+
+---
+
+## Table of Contents
+
+### Getting Started
+
+| What to Do | When to Do It | Where to Find Details |
+|------------|---------------|----------------------|
+| **Review architecture overview** | Before starting deployment | [Section 1-3](#1-what-this-architecture-is-and-is-not) — Understand what this architecture is, deployment mode, and high-level design |
+| **Complete preflight checklist** | **Before any infrastructure work** | [`PREFLIGHT.md`](./PREFLIGHT.md) — Verify prerequisites, permissions, and capacity |
+| **Follow deployment walkthrough** | After preflight passes | [`WALKTHROUGH.md`](./WALKTHROUGH.md) — Step-by-step deployment instructions |
+
+### Architecture Reference
+
+| What to Do | When to Do It | Where to Find Details |
+|------------|---------------|----------------------|
+| **Plan network topology** | During infrastructure design | [Section 4: Network & Ingress](#4-network--ingress) — VPC, subnets, ALB, and ingress requirements |
+| **Size compute resources** | During infrastructure design | [Section 5: Compute (EKS)](#5-compute-kubernetes-eks) — EKS cluster and node group sizing |
+| **Design data store architecture** | During infrastructure design | [Section 6: Data Stores](#6-data-stores) — PostgreSQL, Redis, and ClickHouse requirements |
+| **Review production requirements** | Before production deployment | [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md) — Detailed production capacity, topology, and scaling guidance |
+| **Configure object storage** | During infrastructure setup | [Section 7: Object Storage](#7-object-storage) — S3 bucket and access patterns |
+| **Plan secrets and authentication** | During infrastructure setup | [Section 8: Secrets & Identity](#8-secrets--identity) — Secrets management and auth patterns |
+
+### Operations & Troubleshooting
+
+| What to Do | When to Do It | Where to Find Details |
+|------------|---------------|----------------------|
+| **Understand operational patterns** | After deployment | [Section 8.5: Operational Guidance](#85-operational-guidance) — Ingestion configuration and failure modes |
+| **Set up observability** | During/after deployment | [Section 9: Observability](#9-observability-platform-level) — Logging and monitoring requirements |
+| **Review security baseline** | Before production | [Section 10: Security Baseline](#10-security-baseline-non-negotiable) — Required security controls |
+| **Troubleshoot issues** | When problems occur | [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) — Common issues and diagnostic steps |
+
+### Reference Information
+
+| What to Do | When to Do It | Where to Find Details |
+|------------|---------------|----------------------|
+| **Understand what's excluded** | Before customizing | [Section 11: What's Excluded](#11-what-this-architecture-explicitly-excludes) — Out-of-scope features |
+| **Review design rationale** | For context | [Section 12: Why This Exists](#12-why-this-exists) — Purpose and goals of this architecture |
 
 ---
 
