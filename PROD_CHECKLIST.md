@@ -64,30 +64,61 @@ LangSmith uses ClickHouse as the primary storage engine for **traces** and **fee
 - [ ] Disk usage monitored and alerting configured (>70%)
 - [ ] Query concurrency and disk I/O metrics monitored (leading indicators, not just CPU/memory)
 
+### Kubernetes Storage / EBS CSI (REQUIRED FOR CLICKHOUSE ON EKS)
+- [ ] AWS EBS CSI Driver installed in the cluster
+- [ ] Default StorageClass exists and provisions EBS volumes
+- [ ] ClickHouse PVCs bind successfully and pods reach Ready state
+- [ ] Volume expansion behavior understood / validated (if used)
+
+> **Rationale**: ClickHouse persistence on EKS requires dynamic PersistentVolume provisioning via the AWS EBS CSI Driver. Without EBS CSI and a functional default EBS-backed StorageClass, ClickHouse PVCs cannot bind and pods will not start. This is a hard requirement for in-cluster ClickHouse deployments.
+
 ---
 
-## 4. Blob Storage (STRONGLY RECOMMENDED)
+## 4. Blob Storage (REQUIRED FOR PRODUCTION)
 
-Blob storage (e.g., S3 or GCS) stores large trace artifacts and payloads, reducing ClickHouse size and improving performance. Without blob storage, large trace payloads are stored inline in ClickHouse, increasing part counts, merge pressure, and read amplification—often leading to delayed or missing traces under load.
+**Blob storage (e.g., S3 or GCS) is REQUIRED for production deployments.** Blob storage stores large trace artifacts and payloads, reducing ClickHouse part counts, merge pressure, and read amplification. Without blob storage, large trace payloads stored inline in ClickHouse cause concurrency collapse, delayed trace visibility, and missing traces under load.
 
-Blob storage is **strongly recommended for production** and should be enabled if **any** of the following are true:
-
-- [ ] More than ~10 active tenants
-- [ ] Peak concurrent ClickHouse queries > 100 (or spikes > 200)
-- [ ] P95 query latency > 2s for trace or run retrieval
-- [ ] P95 ingestion delay (`received_at → inserted_at`) > 60s
-- [ ] One or more tenants produce large or verbose traces
-
-If blob storage is enabled:
-
+### Production Requirements
+- [ ] Blob storage configured and enabled
 - [ ] Blob storage connectivity validated from cluster
 - [ ] Blob lifecycle policies aligned with ClickHouse TTL settings
 - [ ] Object storage throughput and request limits verified
 
+### Non-Production Guidance
+Blob storage may be omitted **only** in dev/eval environments that are:
+- Low-traffic (minimal trace volume)
+- Short-lived (proof-of-concept or temporary)
+- Not subject to production SLAs
+
+For reference, the following heuristics indicate when blob storage becomes critical (but production should have it enabled regardless):
+- More than ~10 active tenants
+- Peak concurrent ClickHouse queries > 100 (or spikes > 200)
+- P95 query latency > 2s for trace or run retrieval
+- P95 ingestion delay (`received_at → inserted_at`) > 60s
+- One or more tenants produce large or verbose traces
+
 
 ---
 
-## 5. Scaling Mental Model (UNDERSTOOD)
+## 5. Autoscaling (HPA REQUIRED; KEDA OPTIONAL)
+
+### Horizontal Pod Autoscaler (HPA) - Required
+- [ ] HPA configured for LangSmith services (backend, workers, etc.)
+- [ ] Resource requests/limits set to make HPA meaningful
+- [ ] HPA metrics validated (CPU, memory, or custom metrics as appropriate)
+- [ ] HPA scaling behavior tested under load
+
+### KEDA (Optional / Advanced)
+- [ ] If KEDA is used: triggers documented and understood
+- [ ] Interaction with HPA validated (KEDA can work alongside HPA but requires careful configuration)
+- [ ] Rollback plan exists if KEDA causes issues
+- [ ] Team understands KEDA is optional (P1/advanced) and not part of P0 baseline
+
+> **Rationale**: HPA is the Kubernetes-native autoscaling mechanism and is sufficient for the P0 reference architecture. KEDA adds complexity and is positioned as optional advanced autoscaling (P1). The baseline keeps to HPA for simplicity, supportability, and to avoid unnecessary operational overhead.
+
+---
+
+## 6. Scaling Mental Model (UNDERSTOOD)
 
 > **For detailed explanation of read vs write paths, see [`README.md`](./README.md#65-read-vs-write-path-mental-model).**
 
@@ -102,7 +133,7 @@ If blob storage is enabled:
 
 ---
 
-## 6. Networking & Proxies
+## 7. Networking & Proxies
 
 - [ ] Frontend / ingress `maxBodySize` supports expected trace payload sizes
 - [ ] Reverse proxy timeouts reviewed for large reads
@@ -111,7 +142,7 @@ If blob storage is enabled:
 
 ---
 
-## 7. Operational Safeguards
+## 8. Operational Safeguards
 
 - [ ] Monitoring in place for:
   - Concurrent ClickHouse queries (leading indicator)
@@ -125,7 +156,7 @@ If blob storage is enabled:
 
 ---
 
-## 8. Optional Performance Levers (NOT FIXES)
+## 9. Optional Performance Levers (NOT FIXES)
 
 - [ ] `CLICKHOUSE_ASYNC_INSERT_WAIT_PCT_FLOAT=0` evaluated as an optional ingest lever to reduce write latency
 - [ ] Team understands this setting does not fix underlying ClickHouse saturation
@@ -135,7 +166,7 @@ If blob storage is enabled:
 
 ---
 
-## 9. Diagnostics & Support Readiness
+## 10. Diagnostics & Support Readiness
 
 - [ ] Log collection procedures documented (Kubernetes / Docker)
 - [ ] Ability to collect ClickHouse system tables (`system.query_log`, parts, merges)
@@ -144,7 +175,7 @@ If blob storage is enabled:
 
 ---
 
-## 10. Known Failure Mode Awareness
+## 11. Known Failure Mode Awareness
 
 - [ ] Team understands that failures often present as:
   - "Traces created but not visible"
@@ -163,6 +194,6 @@ If blob storage is enabled:
 
 - [ ] Architecture reviewed against this checklist
 - [ ] All REQUIRED items satisfied
-- [ ] STRONGLY RECOMMENDED items acknowledged or explicitly accepted as risk
+- [ ] Production requirements (blob storage, EBS CSI, HPA) verified
 
 > If multiple items above are unchecked, production incidents are more likely under moderate to high load. This checklist serves as guidance to help identify and address potential risks before they impact production.
