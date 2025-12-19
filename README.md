@@ -97,7 +97,7 @@ Persistent dependencies:
 - PostgreSQL — metadata (projects, orgs, users)
 - Redis — cache and job queues
 - ClickHouse — traces and analytics
-- S3 — large artifacts and payload storage
+- S3 — large artifacts and payload storage (required for production)
 
 
 **Flow Summary**
@@ -108,7 +108,7 @@ Persistent dependencies:
   - **PostgreSQL** (metadata)
   - **Redis** (cache / queues)
   - **ClickHouse** (traces & analytics)
-  - **S3** (large artifacts and payloads)
+  - **S3** (large artifacts and payloads; required for production)
 
 This diagram represents the **minimum supported topology** for the P0 reference architecture.
 
@@ -150,6 +150,16 @@ This diagram represents the **minimum supported topology** for the P0 reference 
 - This includes LangSmith services + system overhead
 
 > **For detailed production capacity requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md).**
+
+### Storage Requirements (Production)
+- **AWS EBS CSI Driver** must be installed for ClickHouse persistence
+- **Default EBS-backed StorageClass** must exist and be functional
+- ClickHouse requires dynamic PersistentVolume provisioning via EBS CSI
+
+### Autoscaling
+- **HPA (Horizontal Pod Autoscaler) is required** for LangSmith services
+- **KEDA is optional** (P1 / advanced autoscaling) and not part of the P0 baseline
+- If KEDA is used, ensure proper interaction with HPA and document triggers
 
 ---
 
@@ -204,23 +214,19 @@ ClickHouse is **memory-, I/O-, and concurrency-intensive**. Proper sizing and to
 
 ---
 
-### Blob Storage (Strong Production Recommendation)
+### Blob Storage (Required for Production)
 
-Blob storage is **strongly recommended for production** and should be enabled once deployments exceed **~10 active tenants** OR hit any of the workload-based triggers below.
+**Blob storage (S3) is REQUIRED for production deployments.** Without blob storage, large trace payloads stored inline in ClickHouse increase part counts, merge pressure, and read amplification, leading to concurrency collapse, delayed trace visibility, and missing traces under load.
 
-> **For complete blob storage requirements and workload triggers, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#4-blob-storage-strongly-recommended).**
+> **For complete blob storage requirements, see [`PROD_CHECKLIST.md`](./PROD_CHECKLIST.md#4-blob-storage-required-for-production).**
 
-#### Workload Triggers
-Enable blob storage if **any** of the following are observed or expected:
+#### Non-Production Guidance
+Blob storage may be omitted **only** in dev/eval environments that are:
+- Low-traffic (minimal trace volume)
+- Short-lived (proof-of-concept or temporary)
+- Not subject to production SLAs
 
-- Peak concurrent ClickHouse queries consistently **> 100** (or spikes > 200)
-- P95 query latency **> 2 seconds** for trace or run retrieval queries
-- P95 ingestion delay (`received_at → inserted_at`) **> 60 seconds**
-- Any tenant producing **large or verbose traces** (e.g., large tool outputs, attachments, or deeply nested spans)
-
-> ⚠️ **Without blob storage**, large payloads increase part counts, merge pressure, and read amplification, leading to concurrency collapse and delayed trace visibility.
-
-> ⚠️ **Blob storage lifecycle policies must align with ClickHouse TTL settings** to prevent data inconsistencies and ensure proper cleanup.
+For any deployment expected to handle real workloads or persist beyond evaluation, blob storage is required.
 
 ---
 
@@ -269,14 +275,33 @@ Understanding the separation between read and write paths is critical for effect
 
 ## 7. Object Storage
 
-### S3 (Strongly Recommended)
-- Store large trace artifacts and payloads
-- Reduces DB size and blast radius
+### S3 (Required for Production)
+- **Blob storage is REQUIRED for production deployments**
+- Stores large trace artifacts and payloads
+- Reduces ClickHouse part counts and merge pressure
+- Prevents delayed or missing traces under load
 - Improves security posture for sensitive inputs/outputs
 
 ### Access Pattern
 - Use **IAM Roles for Service Accounts (IRSA)** where possible
 - No static credentials in Helm values
+
+> **For non-production guidance, see [Section 6: Blob Storage](#blob-storage-required-for-production).**
+
+---
+
+## 7.5. Production Requirements Summary
+
+### Core Production Requirements
+- **Blob storage (S3) is REQUIRED** for production deployments
+- **EBS CSI Driver** must be installed on EKS for ClickHouse persistence
+- **Default EBS-backed StorageClass** must exist and be functional
+- **HPA (Horizontal Pod Autoscaler) is required** for service autoscaling
+
+### Why These Requirements Exist
+- **Blob storage**: Reduces ClickHouse merge pressure and part counts, preventing delayed/missing traces under load. Without it, large payloads stored inline cause concurrency collapse.
+- **EBS CSI Driver**: Required for dynamic PersistentVolume provisioning on EKS. ClickHouse persistence depends on stable EBS-backed storage; without EBS CSI, PVCs cannot bind and ClickHouse pods will not start.
+- **HPA vs KEDA**: HPA is the Kubernetes-native baseline and sufficient for P0. KEDA adds complexity and is optional (P1/advanced); baseline keeps to HPA for simplicity and supportability.
 
 ---
 
